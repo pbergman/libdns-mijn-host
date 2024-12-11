@@ -35,7 +35,6 @@ func NewProvider(key string) *Provider {
 
 type Provider struct {
 	client *http.Client
-	pool   *sync.Pool
 	mutex  sync.RWMutex
 }
 
@@ -53,6 +52,10 @@ func (p *Provider) SetBaseUrl(base string) error {
 
 func (p *Provider) SetApiKey(key string) {
 	p.client.Transport.(*apiTransport).apiKey = key
+}
+
+func (p *Provider) GetApiKey() string {
+	return p.client.Transport.(*apiTransport).apiKey
 }
 
 func (p *Provider) SetDebug(writer io.Writer) {
