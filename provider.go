@@ -18,52 +18,40 @@ import (
 	"github.com/libdns/libdns"
 )
 
-func NewProvider(key string) *Provider {
-	provider := &Provider{
-		client: &http.Client{
-			Transport: &apiTransport{
-				apiKey: key,
-				inner:  http.DefaultTransport,
-			},
-		},
+func NewProvider() *Provider {
+	return &Provider{
+		client: &http.Client{},
 	}
+}
 
-	_ = provider.SetBaseUrl("https://mijn.host/api/v2/")
-
-	return provider
+type status struct {
+	Code        int    `json:"status"`
+	Description string `json:"status_description"`
 }
 
 type Provider struct {
+	ApiKey string `json:"api_key"`
 	client *http.Client
 	mutex  sync.RWMutex
 }
 
-func (p *Provider) SetBaseUrl(base string) error {
-	uri, err := url.Parse(base)
+func (p *Provider) toPath(zone string) string {
+	return fmt.Sprintf("https://mijn.host/api/v2/domains/%s/dns", url.PathEscape(strings.TrimSuffix(zone, ".")))
+}
+
+func (p *Provider) newRequest(ctx context.Context, method string, zone string, body io.Reader) (*http.Request, error) {
+
+	request, err := http.NewRequestWithContext(ctx, "PUT", p.toPath(zone), body)
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	p.client.Transport.(*apiTransport).baseUri = uri
+	request.Header.Set("accept", "application/json")
+	request.Header.Set("content-type", "application/json")
+	request.Header.Set("API-Key", p.ApiKey)
 
-	return nil
-}
-
-func (p *Provider) SetApiKey(key string) {
-	p.client.Transport.(*apiTransport).apiKey = key
-}
-
-func (p *Provider) GetApiKey() string {
-	return p.client.Transport.(*apiTransport).apiKey
-}
-
-func (p *Provider) SetDebug(writer io.Writer) {
-	p.client.Transport.(*apiTransport).debug = writer
-}
-
-func (p *Provider) toPath(zone string) string {
-	return fmt.Sprintf("domains/%s/dns", url.PathEscape(strings.TrimSuffix(zone, ".")))
+	return request, nil
 }
 
 func (p *Provider) updateRecords(ctx context.Context, zone string, recs []libdns.Record) error {
@@ -89,7 +77,7 @@ func (p *Provider) updateRecords(ctx context.Context, zone string, recs []libdns
 		return err
 	}
 
-	request, err := http.NewRequestWithContext(ctx, "PUT", p.toPath(zone), bytes.NewReader(out))
+	request, err := p.newRequest(ctx, "PUT", p.toPath(zone), bytes.NewReader(out))
 
 	if err != nil {
 		return err
@@ -103,7 +91,7 @@ func (p *Provider) updateRecords(ctx context.Context, zone string, recs []libdns
 
 	defer response.Body.Close()
 
-	var object Status
+	var object status
 
 	if err := json.NewDecoder(response.Body).Decode(&object); err != nil {
 		return err
@@ -225,7 +213,7 @@ func (p *Provider) GetRecords(ctx context.Context, zone string) ([]libdns.Record
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
 
-	request, err := http.NewRequestWithContext(ctx, "GET", p.toPath(zone), nil)
+	request, err := p.newRequest(ctx, "GET", p.toPath(zone), nil)
 
 	if err != nil {
 		return nil, err
@@ -240,7 +228,7 @@ func (p *Provider) GetRecords(ctx context.Context, zone string) ([]libdns.Record
 	defer response.Body.Close()
 
 	var object = struct {
-		Status
+		status
 		Data struct {
 			Domain  string
 			Records *[]libdns.Record
@@ -251,8 +239,8 @@ func (p *Provider) GetRecords(ctx context.Context, zone string) ([]libdns.Record
 		return nil, err
 	}
 
-	if 200 != object.Status.Code {
-		return nil, errors.New(object.Status.Description)
+	if 200 != object.status.Code {
+		return nil, errors.New(object.status.Description)
 	}
 
 	for i, c := 0, len(*object.Data.Records); i < c; i++ {
