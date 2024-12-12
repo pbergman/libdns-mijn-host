@@ -184,7 +184,11 @@ next:
 		return nil, err
 	}
 
-	return records, nil
+	for i, c := 0, len(recs); i < c; i++ {
+		recs[i].ID = p.generateId(&recs[i])
+	}
+
+	return recs, nil
 }
 
 func (p *Provider) AppendRecords(ctx context.Context, zone string, recs []libdns.Record) ([]libdns.Record, error) {
@@ -205,7 +209,21 @@ func (p *Provider) AppendRecords(ctx context.Context, zone string, recs []libdns
 		return nil, err
 	}
 
-	return records, nil
+	for i, c := 0, len(recs); i < c; i++ {
+		recs[i].ID = p.generateId(&recs[i])
+	}
+
+	return recs, nil
+}
+
+func (p *Provider) generateId(record *libdns.Record) string {
+	var hash = sha1.New()
+	_, _ = fmt.Fprintf(hash, "[type:%s]", record.Type)
+	_, _ = fmt.Fprintf(hash, "[name:%s]", record.Name)
+	_, _ = fmt.Fprintf(hash, "[value:%s]", record.Value)
+	_, _ = fmt.Fprintf(hash, "[ttl:%s]", record.TTL)
+
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 func (p *Provider) GetRecords(ctx context.Context, zone string) ([]libdns.Record, error) {
@@ -244,12 +262,7 @@ func (p *Provider) GetRecords(ctx context.Context, zone string) ([]libdns.Record
 	}
 
 	for i, c := 0, len(*object.Data.Records); i < c; i++ {
-		var hash = sha1.New()
-		_, _ = fmt.Fprintf(hash, "[type:%s]", (*object.Data.Records)[i].Type)
-		_, _ = fmt.Fprintf(hash, "[name:%s]", (*object.Data.Records)[i].Name)
-		_, _ = fmt.Fprintf(hash, "[value:%s]", (*object.Data.Records)[i].Value)
-		_, _ = fmt.Fprintf(hash, "[ttl:%s]", (*object.Data.Records)[i].TTL)
-		(*object.Data.Records)[i].ID = hex.EncodeToString(hash.Sum(nil))
+		(*object.Data.Records)[i].ID = p.generateId(&(*object.Data.Records)[i])
 		(*object.Data.Records)[i].TTL *= time.Second
 	}
 
