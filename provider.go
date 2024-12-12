@@ -41,7 +41,7 @@ func (p *Provider) toPath(zone string) string {
 
 func (p *Provider) newRequest(ctx context.Context, method string, zone string, body io.Reader) (*http.Request, error) {
 
-	request, err := http.NewRequestWithContext(ctx, "PUT", p.toPath(zone), body)
+	request, err := http.NewRequestWithContext(ctx, method, p.toPath(zone), body)
 
 	if err != nil {
 		return nil, err
