@@ -77,7 +77,7 @@ func (p *Provider) updateRecords(ctx context.Context, zone string, recs []libdns
 		return err
 	}
 
-	request, err := p.newRequest(ctx, "PUT", p.toPath(zone), bytes.NewReader(out))
+	request, err := p.newRequest(ctx, "PUT", zone, bytes.NewReader(out))
 
 	if err != nil {
 		return err
@@ -213,7 +213,7 @@ func (p *Provider) GetRecords(ctx context.Context, zone string) ([]libdns.Record
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
 
-	request, err := p.newRequest(ctx, "GET", p.toPath(zone), nil)
+	request, err := p.newRequest(ctx, "GET", zone, nil)
 
 	if err != nil {
 		return nil, err
