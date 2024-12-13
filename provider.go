@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -30,9 +31,10 @@ type status struct {
 }
 
 type Provider struct {
-	ApiKey string `json:"api_key"`
-	client *http.Client
-	mutex  sync.RWMutex
+	ApiKey   string `json:"api_key"`
+	client   *http.Client
+	mutex    sync.RWMutex
+	resolver *net.Resolver
 }
 
 func (p *Provider) toPath(zone string) string {
@@ -114,6 +116,8 @@ func (p *Provider) DeleteRecords(ctx context.Context, zone string, recs []libdns
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
+	var removed []libdns.Record
+
 outerLoop:
 
 	for _, remove := range recs {
@@ -121,6 +125,7 @@ outerLoop:
 			for idx, x := range records {
 				if x.ID == remove.ID {
 					records = append(records[:idx], records[idx+1:]...)
+					removed = append(removed, records[idx])
 					continue outerLoop
 				}
 			}
@@ -128,6 +133,7 @@ outerLoop:
 		for idx, x := range records {
 			if x.Type == remove.Type && x.Name == remove.Name && x.Value == remove.Value && x.TTL == remove.TTL {
 				records = append(records[:idx], records[idx+1:]...)
+				removed = append(removed, records[idx])
 				continue outerLoop
 			}
 		}
@@ -137,7 +143,7 @@ outerLoop:
 		return nil, err
 	}
 
-	return records, nil
+	return removed, nil
 }
 
 func (p *Provider) SetRecords(ctx context.Context, zone string, recs []libdns.Record) ([]libdns.Record, error) {
@@ -184,11 +190,7 @@ next:
 		return nil, err
 	}
 
-	for i, c := 0, len(recs); i < c; i++ {
-		recs[i].ID = p.generateId(&recs[i])
-	}
-
-	return recs, nil
+	return p.validate(ctx, recs), nil
 }
 
 func (p *Provider) AppendRecords(ctx context.Context, zone string, recs []libdns.Record) ([]libdns.Record, error) {
@@ -213,7 +215,107 @@ func (p *Provider) AppendRecords(ctx context.Context, zone string, recs []libdns
 		recs[i].ID = p.generateId(&recs[i])
 	}
 
-	return recs, nil
+	return p.validate(ctx, recs), nil
+}
+
+func (p *Provider) validate(ctx context.Context, recs []libdns.Record) []libdns.Record {
+
+	p.sleep(ctx, 200*time.Millisecond)
+
+	if nil == p.resolver {
+		p.resolver = &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				d := net.Dialer{
+					Timeout: time.Millisecond * time.Duration(10000),
+				}
+
+				return d.DialContext(ctx, network, "208.67.222.222:53")
+			},
+		}
+	}
+
+	var success []libdns.Record
+
+loop:
+	for i, c := 0, len(recs); i < c; i++ {
+
+		switch recs[i].Type {
+		case "A", "AAAA":
+			var network = map[string]string{
+				"A":    "ipv4",
+				"AAAA": "ipv6",
+			}
+			for n, r := 0, 5; n < r; n++ {
+				list, err := p.resolver.LookupIP(ctx, network[recs[i].Type], recs[i].Name)
+				if err == nil {
+					for _, item := range list {
+						if item.String() == recs[i].Value {
+							success = append(success, recs[i])
+							continue loop
+						}
+					}
+				}
+				p.sleep(ctx, 500*time.Millisecond)
+			}
+		case "CNAME":
+			for n, r := 0, 5; n < r; n++ {
+				item, err := p.resolver.LookupCNAME(ctx, recs[i].Name)
+				if err == nil {
+					if item == recs[i].Value {
+						success = append(success, recs[i])
+						continue loop
+					}
+				}
+				p.sleep(ctx, 500*time.Millisecond)
+			}
+			break
+		case "NS":
+			for n, r := 0, 5; n < r; n++ {
+				list, err := p.resolver.LookupNS(ctx, recs[i].Name)
+				if err == nil {
+					for _, item := range list {
+						if item.Host == recs[i].Value {
+							success = append(success, recs[i])
+							continue loop
+						}
+					}
+				}
+				p.sleep(ctx, 500*time.Millisecond)
+			}
+			break
+		case "TXT":
+			for n, r := 0, 5; n < r; n++ {
+				list, err := p.resolver.LookupTXT(ctx, recs[i].Name)
+				if err == nil {
+					for _, item := range list {
+						if item == recs[i].Value {
+							success = append(success, recs[i])
+							continue loop
+						}
+					}
+				}
+				p.sleep(ctx, 500*time.Millisecond)
+			}
+			break
+		default:
+			// @todo validate other record types [ALIAS, CAA, DS, MX, SPF, SRV, TLSA]
+			success = append(success, recs[i])
+		}
+
+	}
+
+	return success
+}
+func (p *Provider) sleep(ctx context.Context, delay time.Duration) {
+	var timer = time.NewTimer(delay)
+	select {
+	case <-ctx.Done():
+		if !timer.Stop() {
+			<-timer.C
+		}
+	case <-timer.C:
+	}
 }
 
 func (p *Provider) generateId(record *libdns.Record) string {
