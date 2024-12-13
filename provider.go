@@ -190,7 +190,12 @@ next:
 		return nil, err
 	}
 
-	return p.validate(ctx, recs), nil
+	for i, c := 0, len(recs); i < c; i++ {
+		recs[i].ID = p.generateId(&recs[i])
+	}
+
+	return recs, nil
+	//return p.validate(ctx, recs), nil
 }
 
 func (p *Provider) AppendRecords(ctx context.Context, zone string, recs []libdns.Record) ([]libdns.Record, error) {
@@ -215,7 +220,8 @@ func (p *Provider) AppendRecords(ctx context.Context, zone string, recs []libdns
 		recs[i].ID = p.generateId(&recs[i])
 	}
 
-	return p.validate(ctx, recs), nil
+	return recs, nil
+	//return p.validate(ctx, recs), nil
 }
 
 func (p *Provider) validate(ctx context.Context, recs []libdns.Record) []libdns.Record {
