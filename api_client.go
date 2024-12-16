@@ -139,7 +139,7 @@ func (a *ApiClient) SetRecords(ctx context.Context, zone string, records []libdn
 func (a *ApiClient) toBody(zone string, records []libdns.Record) (io.Reader, error) {
 	var hostname = zone
 
-	if zone[len(zone)] != '.' {
+	if zone[len(zone)-1] != '.' {
 		hostname += "."
 	}
 
