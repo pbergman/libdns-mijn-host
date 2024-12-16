@@ -50,6 +50,7 @@ func (p *Provider) DeleteRecords(ctx context.Context, zone string, recs []libdns
 	defer p.mutex.Unlock()
 
 	existing, err := p.client.GetRecords(ctx, zone)
+	var update = make([]libdns.Record, 0)
 
 	if err != nil {
 		return nil, err
@@ -57,25 +58,18 @@ func (p *Provider) DeleteRecords(ctx context.Context, zone string, recs []libdns
 
 outerLoop:
 
-	for _, remove := range recs {
-		if remove.ID != "" {
-			for idx, x := range existing {
-				if x.ID == remove.ID {
-					existing = append(existing[:idx], existing[idx+1:]...)
-					continue outerLoop
-				}
-			}
-		}
+	for _, a := range existing {
 
-		for idx, x := range existing {
-			if x.Type == remove.Type && x.Name == remove.Name && x.Value == remove.Value && x.TTL == remove.TTL {
-				existing = append(existing[:idx], existing[idx+1:]...)
+		for _, b := range recs {
+			if (b.ID != "" && a.ID == b.ID) || (a.Type == b.Type && a.Name == b.Name && a.Value == b.Value) {
 				continue outerLoop
 			}
 		}
+
+		update = append(update, a)
 	}
 
-	if err := p.client.SetRecords(ctx, zone, append(existing, recs...)); err != nil {
+	if err := p.client.SetRecords(ctx, zone, update); err != nil {
 		return nil, err
 	}
 
