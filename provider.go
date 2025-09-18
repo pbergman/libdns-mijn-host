@@ -1,117 +1,96 @@
 package mijn_host
 
 import (
-	"context"
+	"bytes"
+	"encoding/json"
+	"io"
 	"net"
+	"net/url"
+	"os"
 	"sync"
 
 	"github.com/libdns/libdns"
+	"github.com/pbergman/libdns-mijn-host/client"
 )
 
 func NewProvider() *Provider {
 	return &Provider{
-		client: NewApiClient("", nil),
+		client: client.NewApiClient("", nil),
 	}
 }
 
-type Provider struct {
-	client *ApiClient
+type clientConfig struct {
+	ApiKey  string `json:"api_key,omitempty"`
+	Debug   bool   `json:"debug"`
+	BaseUri string `json:"base_uri,omitempty"`
+}
 
+type Provider struct {
+	client   *client.ApiClient
 	mutex    sync.RWMutex
 	resolver *net.Resolver
 }
 
-func (p *Provider) GetRecords(ctx context.Context, zone string) ([]libdns.Record, error) {
-	p.mutex.RLock()
-	defer p.mutex.RUnlock()
+func (p *Provider) UnmarshalJSON(b []byte) error {
 
-	return p.client.GetRecords(ctx, zone)
-}
+	var data *clientConfig
 
-func (p *Provider) AppendRecords(ctx context.Context, zone string, recs []libdns.Record) ([]libdns.Record, error) {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
+	decoder := json.NewDecoder(bytes.NewReader(b))
+	decoder.DisallowUnknownFields()
 
-	existing, err := p.client.GetRecords(ctx, zone)
-
-	if err != nil {
-		return nil, err
+	if err := decoder.Decode(&data); err != nil {
+		return err
 	}
 
-	if err := p.client.SetRecords(ctx, zone, append(existing, recs...)); err != nil {
-		return nil, err
+	if data.Debug {
+		p.SetDebug(os.Stdout)
 	}
 
-	return recs, nil
-}
-
-func (p *Provider) DeleteRecords(ctx context.Context, zone string, recs []libdns.Record) ([]libdns.Record, error) {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-
-	existing, err := p.client.GetRecords(ctx, zone)
-	var update = make([]libdns.Record, 0)
-
-	if err != nil {
-		return nil, err
-	}
-
-outerLoop:
-
-	for _, a := range existing {
-
-		for _, b := range recs {
-			if (b.ID != "" && a.ID == b.ID) || (a.Type == b.Type && a.Name == b.Name && a.Value == b.Value) {
-				continue outerLoop
-			}
+	if "" != data.BaseUri {
+		if err := p.SetBaseUrl(data.BaseUri); err != nil {
+			return err
 		}
-
-		update = append(update, a)
 	}
 
-	if err := p.client.SetRecords(ctx, zone, update); err != nil {
-		return nil, err
-	}
-
-	return recs, nil
+	return nil
 }
 
-func (p *Provider) equals(a, b *libdns.Record) bool {
-	return (a.Type == "CNAME" && b.Type == "CNAME" && a.Name == b.Name) || (a.ID != "" && a.ID == b.ID)
+func (p *Provider) MarshalJSON() ([]byte, error) {
+
+	var config = &clientConfig{
+		ApiKey: p.client.GetApiKey(),
+		Debug:  p.client.GetDebug() == nil,
+	}
+
+	if nil != p.client.GetBaseUrl() {
+		config.BaseUri = p.client.GetBaseUrl().String()
+	}
+
+	return json.Marshal(config)
 }
 
-func (p *Provider) SetRecords(ctx context.Context, zone string, recs []libdns.Record) ([]libdns.Record, error) {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
+func (p *Provider) SetBaseUrl(base string) error {
+	return p.client.SetBaseUrl(base)
+}
 
-	existing, err := p.client.GetRecords(ctx, zone)
+func (p *Provider) GetBaseUrl() *url.URL {
+	return p.client.GetBaseUrl()
+}
 
-	if err != nil {
-		return nil, err
-	}
+func (p *Provider) SetApiKey(key string) {
+	p.client.SetApiKey(key)
+}
 
-outerLoop:
+func (p *Provider) GetApiKey() string {
+	return p.client.GetApiKey()
+}
 
-	for i, c := 0, len(recs); i < c; i++ {
-		for x, y := 0, len(existing); x < y; x++ {
-			if p.equals(&recs[i], &existing[x]) {
-				existing[x] = recs[i]
-				continue outerLoop
-			}
-		}
+func (p *Provider) SetDebug(writer io.Writer) {
+	p.client.SetDebug(writer)
+}
 
-		if "" == recs[i].ID {
-			recs[i].ID = p.client.makeId(&recs[i])
-		}
-
-		existing = append(existing, recs[i])
-	}
-
-	if err := p.client.SetRecords(ctx, zone, existing); err != nil {
-		return nil, err
-	}
-
-	return recs, nil
+func (p *Provider) IsDebug() bool {
+	return nil != p.client.GetDebug()
 }
 
 // Interface guards
@@ -120,4 +99,5 @@ var (
 	_ libdns.RecordAppender = (*Provider)(nil)
 	_ libdns.RecordSetter   = (*Provider)(nil)
 	_ libdns.RecordDeleter  = (*Provider)(nil)
+	_ libdns.ZoneLister     = (*Provider)(nil)
 )

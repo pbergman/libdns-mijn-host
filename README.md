@@ -4,7 +4,7 @@ This package implements the libdns interfaces for the [Mijn Host API](https://mi
 
 ## Authenticating
 
-To authenticate you need to create am api key [here](https://mijn.host/cp/account/api/).
+To authenticate, you need to create am api key [here](https://mijn.host/cp/account/api/).
 
 ## Example
 
@@ -16,21 +16,37 @@ package main
 import (
 	"context"
 	"fmt"
-	
+	"text/tabwriter"
+
 	mijn_host "github.com/pbergman/libdns-mijn-host"
 )
 
 func main() {
-	provider := mijn_host.NewProvider("api_key")
+	provider := mijn_host.NewProvider()
+	provider.SetApiKey("***************************")
+	//provider.SetDebug(os.Stdout)
 
-	records, err := provider.GetRecords(context.Background(), "example.com")
-	
+	zones, err := provider.ListZones(context.Background())
+
 	if err != nil {
 		panic(err)
 	}
 
-	for _, record := range records {
-		fmt.Printf("%s %v %s %s\n", record.Name, record.TTL.Seconds(), record.Type, record.Value)
+	var writer = tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.Debug)
+
+	for _, zone := range zones {
+		records, err := provider.GetRecords(context.Background(), zone.Name)
+
+		if err != nil {
+			panic(err)
+		}
+
+		for record := range mijn_host.RecordIterator(records).Iterate() {
+			_, _ = fmt.Fprintf(writer, "%s\t%v\t%s\t%s\n", record.Name, record.TTL.Seconds(), record.Type, record.Data)
+		}
+
 	}
+
+	_ = writer.Flush()
 }
 ```

@@ -1,4 +1,4 @@
-package mijn_host
+package client
 
 import (
 	"bufio"
