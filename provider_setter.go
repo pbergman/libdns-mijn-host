@@ -41,30 +41,3 @@ outerLoop:
 
 	return recs, nil
 }
-
-//	//
-//	//existing, err := p.client.GetRecords(ctx, zone)
-//	//
-//	//if err != nil {
-//	//	return nil, err
-//	//}
-//	//
-//	////outerLoop:
-//	//
-//	//for i, c := 0, len(recs); i < c; i++ {
-//	//	//for x, y := 0, len(existing); x < y; x++ {
-//	//	//	if p.equals(&recs[i], &existing[x]) {
-//	//	//		existing[x] = recs[i]
-//	//	//		continue outerLoop
-//	//	//	}
-//	//	//}
-//	//
-//	//	existing = append(existing, recs[i])
-//	//}
-//	//
-//	//if err := p.client.SetRecords(ctx, zone, existing); err != nil {
-//	//	return nil, err
-//	//}
-//
-//	return recs, nil
-//}
